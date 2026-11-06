@@ -1,0 +1,91 @@
+{
+  "$comment": [
+    "Intent2Code STACK — the ONLY place stack versions live. Edit this file, then:",
+    "  node .claude/skills/sap-conventions/scripts/stack.mjs resolve         → what a build will use (UI5 patch resolved + verified)",
+    "  node .claude/skills/sap-conventions/scripts/stack.mjs apply <app>     → re-apply to an existing app (then npm install)",
+    "  node .claude/skills/sap-conventions/scripts/stack.mjs check <app>     → drift report (also sanity static check 6)",
+    "  node .claude/skills/sap-conventions/scripts/stack.mjs sync-docs       → regenerate the version tables/snippets in the docs",
+    "Never edit version literals in CLAUDE.md, skills or reference-apps — they are generated from this file."
+  ],
+  "schemaVersion": 1,
+
+  "plugin": {
+    "$comment": "Display version (zip name, README). plugin.json / mcp-server get the semver form (1.09 → 1.9.0).",
+    "version": "1.10"
+  },
+
+  "cap": {
+    "$comment": [
+      "Change ONLY cdsMajor to move the whole CAP stack; compat holds the matching drivers per major",
+      "(verified with npm view: @cap-js/sqlite@2 / @cap-js/hana@2 peer @sap/cds ^9.8; @3 peer ^10; cds 9 engines node >=20, cds 10 >=22).",
+      "The GLOBAL @sap/cds-dk (any major) is used only for scaffolding (cds init) — projects always pin these ranges."
+    ],
+    "cdsMajor": 9,
+    "compat": {
+      "9":  { "@sap/cds": "^9",  "@sap/cds-dk": "^9",  "@cap-js/sqlite": "^2", "@cap-js/hana": "^2", "@sap/xssec": "^4", "node": ">=20" },
+      "10": { "@sap/cds": "^10", "@sap/cds-dk": "^10", "@cap-js/sqlite": "^3", "@cap-js/hana": "^3", "@sap/xssec": "^4", "node": ">=22" }
+    },
+    "placement": {
+      "@sap/cds": "dependencies",
+      "@cap-js/hana": "dependencies",
+      "@sap/xssec": "dependencies",
+      "@sap/cds-dk": "devDependencies",
+      "@cap-js/sqlite": "devDependencies"
+    },
+    "required": ["@sap/cds", "@sap/cds-dk"]
+  },
+
+  "node": {
+    "$comment": "engines.node written to the CAP root package.json. null = cap.compat[cdsMajor].node",
+    "engines": null
+  },
+
+  "ui5": {
+    "$comment": [
+      "Set the RELEASE LINE (e.g. 1.136 or 1.148 — both LTS). The newest patch of that line is resolved from",
+      "<cdn>/version.json (fallback: neo-app.json patch list) and verified (HEAD sap-ui-core.js = 200). Never a guessed patch.",
+      "pin = exact patch instead of the newest (still verified). minUI5Version: 'resolved' (the patch) or 'line' (<line>.0)."
+    ],
+    "line": "1.136",
+    "pin": null,
+    "cdn": "https://sapui5.hana.ondemand.com",
+    "cdnFallback": "https://ui5.sap.com",
+    "minUI5Version": "resolved",
+    "theme": "sap_horizon",
+    "cacheTtlHours": 24
+  },
+
+  "packages": {
+    "$comment": "A string = npm range, updated wherever the package already appears. An object can also ADD the package when its 'required' condition holds: capWithUi = CAP root that serves UI modules, uiModule = every UI module package.json (@ui5/linter runs locally via 'npm exec --no -- ui5lint', never downloaded).",
+    "root": {
+      "cds-plugin-ui5": { "range": "^0.17.0", "section": "devDependencies", "required": "capWithUi" },
+      "jest": "^29",
+      "mbt": "^1"
+    },
+    "app": {
+      "@ui5/cli": "^4.0.33",
+      "@ui5/linter": { "range": "^1.23.0", "section": "devDependencies", "required": "uiModule" },
+      "@sap/ux-ui5-tooling": "1",
+      "@sap-ux/eslint-plugin-fiori-tools": "^10.0.0",
+      "eslint": "^10",
+      "typescript": "^5.9.3",
+      "ui5-tooling-transpile": "^3.10.0",
+      "@sapui5/types": "~{ui5.line}.0",
+      "@sap-ux/ui5-middleware-fe-mockserver": "2",
+      "ui5-task-zipper": "^3"
+    },
+    "workflow": {
+      "mbt": "^1",
+      "rimraf": "^3.0.2"
+    }
+  },
+
+  "ui5Tooling": { "specVersion": "4.0" },
+  "deploy": { "mtaSchemaVersion": "3.3" },
+  "generator": {
+    "$comment": "yo 4 is the last major compatible with @sap/generator-fiori headless (yo 5+ removed env.error).",
+    "yo": "4",
+    "fioriGenerator": "latest",
+    "headlessConfigVersion": "0.2"
+  }
+}

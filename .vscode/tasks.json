@@ -1,0 +1,42 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Intent2Code MCP server (HTTP :3999)",
+      "detail": "Starts the bundled MCP server when this folder is opened (VS Code asks once). The first start installs its dependencies from mcp-server/package-lock.json (npm ci --ignore-scripts); errors appear in the Problems panel.",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "mcp-server/start-http.mjs",
+        "--port=3999"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "intent2code-mcp",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^\\[intent2code\\] HTTP server error: ([\\w./-]+\\.m?js): (.*)$",
+          "file": 1,
+          "message": 2
+        },
+        "background": {
+          "activatesOnStart": true,
+          "beginsPattern": "^\\[intent2code\\]",
+          "endsPattern": "HTTP MCP server ready|already in use"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "revealProblems": "onProblem",
+        "panel": "dedicated",
+        "close": false
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    }
+  ]
+}

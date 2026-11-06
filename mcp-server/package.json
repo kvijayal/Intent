@@ -1,0 +1,22 @@
+{
+  "name": "intent2code-mcp-server",
+  "version": "1.10.0",
+  "private": true,
+  "type": "module",
+  "description": "Custom bundled MCP server for Intent2Code — deterministic SAP BTP scaffolding/validation tools distilled from project learnings. Local-only; no external SAP MCP dependency.",
+  "main": "index.js",
+  "bin": {
+    "intent2code-mcp": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "start-http": "node start-http.mjs --port=3999",
+    "smoke": "node smoke-test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "intent2code",
+  "version": "1.10.0",
+  "description": "Orchestrator-driven, Clean-Core-aligned SAP BTP build framework. From a requirement or Functional Design to a runnable, code-verified CAP + Fiori app with a Technical Design and Unit Testing Document. CAP (CAPM) + UI (Fiori Elements + Freestyle UI5); MDK and Pro-Code reserved.",
+  "author": { "name": "Intent2Code" },
+  "keywords": ["sap", "cap", "capm", "fiori", "ui5", "btp", "clean-core", "odata"]
+}

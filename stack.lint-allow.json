@@ -1,0 +1,60 @@
+{
+  "$comment": [
+    "Reviewed exceptions for `stack.mjs lint` (version literals L4/L8/L9, sync-docs SYNC).",
+    "Markdown carries no hidden marker text: every exception is listed here with a reason.",
+    "Entry: file (plugin-relative, forward slashes) + contains (exact substring of the line) or from/to (substrings of the first/last line of a region) + rules + reason.",
+    "Add an entry only after a review; prefer rewriting the line."
+  ],
+  "allow": [
+    {
+      "file": "CLAUDE.md",
+      "contains": "a guessed `1.136.1` 404s",
+      "rules": [
+        "L9"
+      ],
+      "reason": "Historical fact: 1.136.1 is the guessed patch that does not exist on the CDN and blanked a generated app."
+    },
+    {
+      "file": ".claude/agents/fiori-code-builder.md",
+      "contains": "(`UI5 line 1.136 → 1.136.23 (verified on CDN)`)",
+      "rules": [
+        "L9"
+      ],
+      "reason": "Example of the STACK brief line printed by stack.mjs resolve — illustrative, not a version setting."
+    },
+    {
+      "file": ".claude/agents/fiori-code-builder.md",
+      "contains": "a guessed `1.136.1` does not exist",
+      "rules": [
+        "L9"
+      ],
+      "reason": "Historical fact: the non-existent patch that caused a blank page."
+    },
+    {
+      "file": ".claude/skills/sap-conventions/references/bootstrapping.md",
+      "contains": "`minUI5Version 1.151.0`",
+      "rules": [
+        "L9"
+      ],
+      "reason": "Describes existing workspace apps (why _version 1.x manifests must not be flagged) — not a version setting."
+    },
+    {
+      "file": ".claude/skills/sap-conventions/references/bootstrapping.md",
+      "from": "**Symptom:** `Failed loading service implementation from @cap-js/sqlite`",
+      "to": "CDS 7–8 → `^1`, CDS 9 → `^2.1.x`, CDS 10 → `^3`.",
+      "rules": [
+        "SYNC",
+        "L9"
+      ],
+      "reason": "P-02 historical diagnosis: quotes the driver versions and peer ranges that caused the failure. The live mapping is stack.json cap.compat."
+    },
+    {
+      "file": ".claude/skills/sap-conventions/references/bootstrapping.md",
+      "contains": "verified on `cds-plugin-ui5@0.17.4` / `@sap/ux-ui5-tooling@1.31.1`",
+      "rules": [
+        "SYNC"
+      ],
+      "reason": "Historical fact: the exact versions on which the P-04 peer-dependency analysis was verified."
+    }
+  ]
+}
