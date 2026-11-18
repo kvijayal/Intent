@@ -5,6 +5,7 @@ description: >
   and Unit Testing Document. Deliverables land under <app>/deliverables/ (markdown).
 argument-hint: "<path-to-FD-file | one-line requirement>"
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion, Skill, Agent, TodoWrite, mcp__intent2code__scaffold_app, mcp__intent2code__add_cds_entity, mcp__intent2code__generate_annotations, mcp__intent2code__gen_mock_from_edmx, mcp__intent2code__configure_service, mcp__intent2code__patch_manifest, mcp__intent2code__validate_namespace, mcp__intent2code__run_checks, mcp__intent2code__clean_core_check
+mcp__intent2code__mdk_mobile_services, mcp__mdk__mdk-create, mcp__mdk__mdk-gen, mcp__mdk__mdk-manage, mcp__mdk__mdk-docs, Skill(mdk-project-setup), Skill(mdk-bundler-settings)
 model: inherit
 ---
 
@@ -13,6 +14,123 @@ model: inherit
 You are running the **Intent2Code** end-to-end flow in the MAIN thread (so you — and only you — can use `AskUserQuestion`). The requirement / FD is:
 
 > $ARGUMENTS
+
+> **HARD RULE — MDK MCP server is mandatory for ALL MDK and SSAM queries.**
+> Never answer MDK or SAP Asset Manager (SSAM) questions using only Glob/Grep/Read.
+> Always call MDK MCP tools first. If the server is unreachable at stdio transport, stop and tell the developer:
+> "Intent2Code MCP server is not reachable at stdio transport. Start it with: cd mcp-server && node mcp-server/start.js (auto-started by Claude Code via .mcp.json — no manual start needed). The SAP @sap/mdk-mcp-server starts automatically via .mcp.json — no manual action needed."
+> Do NOT fall back to file-system tools for MDK/SSAM queries — surface the error instead.
+
+**MDK dependencies (run only when requirement mentions mobile, field worker, offline, barcode scanner, MDK, or SAP Mobile Services — skip entirely for CAP/Fiori/UI5).**
+
+If the requirement suggests an MDK app **and is NOT ssam-upgrade or ssam-customize**, run this **single silent Node.js script** (no bash permission popup):
+
+```javascript
+const cp = require("child_process");
+const run = cmd => { try { return cp.execSync(cmd, { stdio:"pipe" }).toString().trim(); } catch(e) { return null; } };
+const mdkVer  = run("npx @sap/mdk-tools --version");
+const nodeVer = run("node --version");
+console.log("mdk_cli=" + (mdkVer || "missing"));
+console.log("node_version=" + (nodeVer || "unknown"));
+```
+
+Skip this check entirely for `ssam-upgrade` and `ssam-customize`.
+
+- **If mdk_cli=missing** → auto-install: `npm install -g @sap/mdk-tools`. If still missing → tell developer to check npm registry access and stop.
+- **If Node.js < 22** → warn: "MDK CLI requires Node.js 22+." Continue — developer can still work on scaffolding; CLI validation will fail at build/deploy time.
+- **If all MDK checks pass** → print `✓ MDK dependencies ready.`
+
+**PRE-FLIGHT MDK — VS Code MDK Extension (MDK only).**
+
+If MDK is in scope, print this reminder (do not block):
+
+> ⚠ MDK requires the VS Code MDK Extension (`SAPSE.vsc-extension-mdk`) to generate `.service.metadata` via the IDE.
+> Alternatively, `mcp__intent2code__mdk_mobile_services` fetches `.service.metadata` automatically (requires CF login).
+
+---
+
+**STEP 0-A — Detect workspace and developer type (MDK / SSAM routing — resolve this before COMMAND CONVENTIONS and PRE-FLIGHT below whenever the requirement may be MDK or SSAM).**
+
+**First — silently scan the workspace using Node.js:**
+
+Save this script to `C:\Temp\intent_scan.js` (Windows) or `/tmp/intent_scan.js` (Mac/Linux) and run:
+```
+Bash: node C:\Temp\intent_scan.js
+```
+
+```javascript
+// intent_scan.js
+const fs = require("fs"), path = require("path");
+const cwd = process.cwd();
+const find = (name, maxDepth=4) => {
+  const results = [];
+  function walk(dir, depth) {
+    if (depth > maxDepth) return;
+    try { for (const e of fs.readdirSync(dir, {withFileTypes:true})) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p, depth+1);
+      else if (e.name === name || e.name.endsWith(name)) results.push(p);
+    }} catch(_) {}
+  }
+  walk(cwd, 0); return results;
+};
+const projectJson    = find(".project.json");
+const cdsrc          = find(".cdsrc.json");
+const serviceMetadata= find(".service.metadata");
+const sapAssetMgr    = fs.existsSync(path.join(cwd,"SAPAssetManager"));
+const cimFiles       = find(".CIM").concat(find(".cim"));
+console.log(JSON.stringify({projectJson,cdsrc,serviceMetadata,sapAssetMgr,cimFiles}));
+```
+
+**Route based on scan results:**
+
+**If `SAPAssetManager/` or `.CIM` file detected** → SSAM project:
+- ❓ **AskUserQuestion**: "SAP Asset Manager project detected. What would you like to do?"
+  Options:
+  - "Upgrade to a new SSAM version"
+  - "Customize / add enhancements to the existing project"
+  - **Upgrade** → jump to SSAM Upgrade Flow (spawn agent immediately)
+  - **Customize** → jump to SSAM Customize Flow (spawn agent immediately)
+
+**If `.project.json` found (standalone MDK):**
+- ❓ **AskUserQuestion**: "Found an existing MDK project. What would you like to do?"
+  Options:
+  - "Modify this project — add pages, entities, actions"
+  - "Deploy, build, validate, or manage this project"
+  - "Generate new pages or actions for an entity"
+- Jump to MDK Fast Path STEP 2c with `projectDir` and project context.
+
+**If no existing project found** → ❓ **AskUserQuestion** (Q1 — top level only):
+"What type of app are you building?"
+  Options:
+  - "CAP / Fiori / UI5 — backend service, Fiori Elements, or freestyle UI5 on BTP"
+  - "MDK — mobile app for iOS/Android"
+
+**Route Q1:**
+- **CAP / Fiori / UI5** → proceed to COMMAND CONVENTIONS and PRE-FLIGHT below, then STEP 0
+- **MDK** → ask Q2:
+  ❓ **AskUserQuestion** (Q2):
+  "Which type of MDK application?"
+  Options:
+  - "Standalone MDK — build a new custom mobile app"
+  - "SAP Asset Manager (SSAM) — Upgrade or Customize an existing project"
+
+  - **Standalone MDK** → follow MDK Fast Path STEP 1
+  - **SAP Asset Manager** → ask Q3:
+    ❓ **AskUserQuestion** (Q3):
+    "What would you like to do with SAP Asset Manager?"
+    Options:
+    - "Upgrade to a new SSAM version"
+    - "Customize / add enhancements to the existing project"
+    - **Upgrade** → jump to SSAM Upgrade Flow (spawn agent immediately — no further questions)
+    - **Customize** → jump to SSAM Customize Flow (spawn agent immediately — no further questions)
+
+**Scope note.** MDK and SSAM requirements are handled entirely by the **MDK Fast Path** and **SSAM Workflow**
+sections at the end of this command — they do **not** run STEP 0–10 or any of the gates below. CAP / Fiori /
+UI5 remains the default scope described elsewhere in this file, and continues into COMMAND CONVENTIONS and
+PRE-FLIGHT immediately below.
+
+---
 
 **COMMAND CONVENTIONS — scoped permissions (read first; they apply to you and every sub-agent).**
 The plugin's `.claude/settings.json` pre-approves an exact list of commands — there is no blanket
@@ -595,3 +713,565 @@ Remind the developer that all three deliverables below are on-demand:
 **No TDD file, no Unit Testing Document, and no test scaffolding are written automatically.**
 
 Keep a `TodoWrite` list of the gates/steps so the developer can see progress. Prefer `mcp__intent2code__*` tools; if the MCP server is unavailable, tell the developer and fall back to the skills (they are the source of truth).
+
+---
+
+## MDK Fast Path (only when MDK is selected in STEP 0-A, or when an existing MDK project is detected)
+
+**Do not run STEP 0–9 for MDK. Use only this section.**
+
+If `$ARGUMENTS` already contains a specific MDK requirement (e.g. "upgrade SSAM"), use it directly,
+skip the STEP 2 question, and proceed to STEP 3.
+
+---
+
+### MDK STEP 1 — Initialize MDK dependencies
+
+**Skip STEP 1 entirely for `ssam-upgrade` and `ssam-customize`.**
+These intents use only Node.js file operations — no MDK CLI, no MCP server check needed.
+If `$ARGUMENTS` contains "upgrade SSAM", "SSAM upgrade", "customize SSAM", or "SSAM customize"
+→ jump directly to STEP 2.
+
+For all other MDK intents, run this **single silent Node.js script** (node is pre-approved — no permission popup):
+
+```javascript
+const cp = require("child_process");
+
+function run(cmd) {
+  try { return cp.execSync(cmd, { stdio: "pipe" }).toString().trim(); }
+  catch(e) { return null; }
+}
+
+const mdkVersion = run("npx @sap/mdk-tools --version");
+const nodeVersion = run("node --version");
+
+console.log("mdk_cli=" + (mdkVersion || "missing"));
+console.log("node_version=" + (nodeVersion || "unknown"));
+```
+
+- `mdk_cli=missing` → auto-install silently: run `npm install -g @sap/mdk-tools` then re-check. If still missing → tell developer and stop.
+- `node_version` < 22 → warn but continue.
+- All good → print `✓ MDK CLI ready · Node.js <version>`
+
+Do NOT check CF login here — only when a CF-dependent intent is identified in STEP 3.
+
+**MDK MCP server check (mandatory — run immediately after MDK CLI check, skip for `ssam-upgrade`/`ssam-customize`):**
+
+Call `mcp__intent2code__validate_namespace` with `{ "namespace": "com.preflight" }` as a lightweight probe (if this fails, the Intent2Code stdio server failed to start — check mcp-server/start.js logs) to confirm the Intent2Code MCP server is running.
+
+- **Succeeds** → print `✓ Intent2Code MCP server running at stdio transport. SAP MDK server (@sap/mdk-mcp-server) starts automatically via .mcp.json.` Done.
+- **Fails / connection refused** → **HARD STOP**:
+  ```
+  ✗ MDK MCP server is not reachable at stdio (auto-started by Claude Code).
+  All MDK and SSAM queries require the MDK MCP server.
+  To start it: cd mcp-server && node mcp-server/start.js (auto-started by Claude Code via .mcp.json — no manual start needed)
+  Then reload the Claude Code window and re-run /intent.
+  ```
+  Do NOT proceed. Do NOT fall back to file-system tools for MDK questions.
+
+---
+
+### MDK STEP 2 — Capture requirement
+
+**2a. If entering from a new MDK selection (no existing project):**
+
+If `$ARGUMENTS` already contains a specific MDK requirement (and it is NOT an SSAM keyword — see STEP 3), use it directly without asking and proceed to STEP 3.
+
+Otherwise use ONE `AskUserQuestion` to choose the MDK mode:
+
+```
+Q: "What would you like to build or do?"
+Options:
+  - "Standard MDK App"             → proceed to STEP 2b
+  - "Upgrade SAP Asset Manager"    → set intent=ssam-upgrade, jump to STEP 3
+  - "Customize SAP Asset Manager"  → jump to SSAM Customize Flow
+  - "SSAM Patch Update"           → set intent=ssam-patch-update, jump to STEP 3
+```
+
+**2b. Standard MDK App — sub-options:**
+
+Ask ONE more `AskUserQuestion`:
+
+```
+Q: "What would you like to do?"
+Options:
+  - "Create a new MDK app"
+  - "Modify an existing MDK project"
+  - "Deploy my MDK app"
+  - "Validate / build my MDK project"
+```
+
+Proceed to STEP 3 to identify intent from the selection.
+
+**2c. If entering from an existing project detection (STEP 0-A):**
+
+Skip straight to STEP 3 using the project context. No need to ask for requirement.
+
+---
+
+### MDK STEP 3 — Identify intent
+
+Classify the requirement into exactly one intent:
+
+| Intent | Keywords | Required before spawning agent |
+|---|---|---|
+| `create-project` | "create", "new app", "scaffold", "build app" | CF login check |
+| `add-entity` | "add entity", "add page", "new page", "add feature" | None |
+| `deploy` | "deploy", "publish", "upload to mobile services" | CF login check |
+| `validate` | "validate", "check errors", "lint" | None |
+| `build` | "build", "bundle", "package" | None |
+| `generate-artifact` | "generate page", "generate action", "create rule" | None |
+| `modify-project` | "modify", "update", "change", "fix", "add to existing" | None |
+| `show-qrcode` | "qr code", "onboard device", "scan" | None |
+| `migrate` | "migrate", "upgrade schema", "update schema version" | None |
+| `ssam-upgrade` | "upgrade SSAM", "SSAM new version", "upgrade asset manager", "Metadata Upgrade Tool", "SSAM 2305", "SSAM 2210", "merge SSAM", "new SAPAssetManager version" | New SAPAssetManager ZIP (one input) |
+
+Print the identified intent: `"Identified intent: **[intent]** — proceeding."`
+
+---
+
+### MDK STEP 4 — Check dependencies for identified intent
+
+**Only check what the identified intent actually needs. Skip everything else.**
+
+#### CF login check (create-project and deploy only):
+```bash
+cf target 2>/dev/null | grep "org:" && echo "CF_AUTH=ok" || echo "CF_AUTH=not_logged_in"
+```
+- Logged in → extract `cfOrg` and `cfSpace`, print `✓ CF target: <org> / <space>.`
+- Not logged in → **HARD STOP**: "CF login required. Open a terminal and run `cf login -a https://api.cf.<region>.hana.ondemand.com --sso`, then re-run /intent."
+
+**For `ssam-upgrade`:** skip CF check and workspace scan entirely. Pass the current working directory as `projectDir` to the agent. The agent handles all path resolution via BLOCKING — never hard-stop in the main flow for this intent.
+
+**For all other intents (validate, build, generate, modify, add-entity, show-qrcode, migrate):** skip this step entirely — no CF check needed.
+
+**Everything else** (workspace scan, Mobile Services discovery, entity sets, template type, online/offline mode) is handled by the `mdk-developer` agent via BLOCKING. Do not ask the developer about these in the main flow.
+
+---
+
+### MDK STEP 5 — Execute via mdk-developer agent
+
+Spawn the `mdk-developer` agent with this brief:
+
+```
+intent:       <identified intent from STEP 3>
+requirement:  <full requirement text from STEP 2 or developer selection in STEP 0-A>
+projectDir:   <current working directory as absolute path>
+cfOrg:        <from STEP 4, or null>
+cfSpace:      <from STEP 4, or null>
+```
+
+Wait for the agent to return. If it returns a `BLOCKING:` message, surface it to the developer with ❓ **AskUserQuestion**, collect the answer, append it to the brief, and re-spawn the agent.
+
+---
+
+### MDK STEP 6 — Post-execution report
+
+Print the agent's "MDK Build Summary" verbatim. Then ask:
+
+❓ **AskUserQuestion**: "What would you like to do next?" with options:
+- Deploy to Mobile Services
+- Validate the project
+- Build the project
+- Done
+
+Route the answer back to STEP 3 → STEP 4 → STEP 5, or exit if "Done".
+
+---
+
+## SSAM Workflow (only when SAP Asset Manager is selected in STEP 0-A)
+
+**Do not run CAP/Fiori steps or Standalone MDK steps for SAP Asset Manager. Use only this section.**
+
+**Load `Skill(mdk-ssam)` now** — its `references/guide.md` contains SSAM project structure templates, CIM file patterns, override patterns, and Z naming conventions.
+
+**Non-negotiable rules — never break these:**
+- `SAPAssetManager/` (the SAP standard project) is **read-only** — never generate or modify files inside it.
+- The Z/custom project is **the only target** for all customizations and new artifacts.
+- Never overwrite existing Z/custom files without explicit user confirmation.
+- Always preserve the standard folder structure when creating overrides.
+- Ask permission before creating a missing `.CIM` or Z project.
+- Ask permission before any destructive operation.
+- Inspect before modifying — always read the relevant files first.
+
+---
+
+### SSAM STEP S1 — Ask operation type
+
+❓ **AskUserQuestion**: "What do you want to do with the SAP Asset Manager application?"
+Options:
+- "Upgrade — update to a new SSAM/MDK version"
+- "Customize — add or modify functionality in the SSAM project"
+
+- **Upgrade selected** → proceed to **SSAM Upgrade Flow**.
+- **Customize selected** → proceed to **SSAM Customize Flow**.
+
+---
+
+### SSAM Upgrade Flow
+
+**Do not run SSAM-U1 through U7 steps here.**
+Do not scan the workspace. Do not check for SAPAssetManager/. Do not ask about CIM files.
+
+Immediately spawn the `mdk-developer` agent:
+
+```
+intent:       ssam-upgrade
+requirement:  <user's original requirement text>
+projectDir:   <current working directory as absolute path>
+```
+
+The agent loads the `mdk-ssam` skill (`references/upgrade.md` and `references/guide.md`).
+The skill handles everything: workspace detection, path collection via BLOCKING,
+CIM pre-audit, Metadata Upgrade Tool guidance, 3-way merge, and post-upgrade validation.
+
+If the agent returns a `BLOCKING:` message → surface it to the developer with
+❓ **AskUserQuestion**, collect the answer, append it to the brief, re-spawn the agent.
+
+### SSAM Customize Flow
+
+You are acting as the SAP Asset Manager customization specialist. The purpose of this flow is to
+safely create and implement SAP Asset Manager customizations using a separate Z/customization
+project and CIM. Run this **in the main thread** — do not spawn the `mdk-developer` agent for
+`ssam-customize`.
+
+**Skills to load immediately:**
+- `mdk-ssam` skill → `references/guide.md` — folder rules, CIM format, Z project conventions
+- `mdk-app-builder` skill → `references/quality-checklist.md` — applied to every file created or modified
+- `mdk-app-builder` skill → `references/rules-reference.md` — load when writing any `.js` rule file
+
+---
+
+#### CRITICAL RULES — MUST ALWAYS BE FOLLOWED
+
+##### RULE 1 — CURRENT WORKSPACE IS THE SOURCE OF TRUTH
+
+Only consider files and folders that currently exist on disk.
+Deleted files do not exist. Never inspect Git history to discover SSAM projects or CIM files.
+Never propose restoring a deleted CIM or Z project unless the user explicitly asks for recovery.
+
+Prohibited commands: `git log`, `git show`, `git reflog`, `git fsck`, `git stash`, `git log --all`, `git diff`.
+
+##### RULE 2 — DISCOVER FIRST, CREATE SECOND
+
+Discovery is always READ-ONLY. Never create anything before the workflow reaches its creation step.
+
+Required sequence:
+```
+DISCOVER (silent) → REPORT → ASK USER → CREATE → VERIFY
+```
+
+##### RULE 3 — FILESYSTEM TOOLS FOR SSAM SETUP
+
+CIM files and Z project scaffolding are plain JSON/folder operations.
+Use filesystem tools (Write, Bash/Node.js) for CIM and Z project creation — MDK MCP is not required for these.
+MDK MCP is required for MDK artifact generation (pages, rules, actions) and validation.
+
+##### RULE 4 — NEVER INVENT MDK MCP TOOLS
+
+Only call MDK MCP tools that actually exist and are available in the environment.
+If a required MDK MCP capability is unavailable, STOP and report the limitation.
+
+##### RULE 5 — SAP ASSET MANAGER STANDARD PROJECT IS READ-ONLY
+
+Never modify files inside `SAPAssetManager/`. All custom code goes in the Z project.
+
+```
+<parent>/
+├── SAPAssetManager/     ← READ ONLY
+└── ZSAPAssetManager/    ← all custom code here
+```
+
+The CIM lives in the **root of `SAPAssetManager/`** — not inside the Z project.
+
+##### RULE 6 — NEVER OVERWRITE EXISTING CUSTOMIZATION
+
+Before modifying an existing Z artifact: inspect it, understand it, preserve unrelated content,
+and ask for confirmation if the change is destructive.
+
+##### RULE 7 — CIM FORMAT: SOURCE AND TARGET ONLY
+
+CIM IntegrationPoints entries must contain **only** `Source` and `Target`. No Description, no other fields.
+
+```json
+{
+    "Source": "/ZSAPAssetManager/Rules/WorkOrders/WorkOrderListViewCaption.js",
+    "Target": "/SAPAssetManager/Rules/WorkOrders/WorkOrderListViewCaption.js"
+}
+```
+
+Determine CIM structure from: existing CIM files → `mdk-ssam` skill, `references/guide.md`.
+
+##### RULE 8 — INSPECT BEFORE MODIFYING
+
+Before implementing any customization: find the artifact, read it, understand it, then change only what's needed.
+
+##### RULE 9 — VERIFY EVERY OPERATION
+
+After every creation or modification, verify the file exists and has the expected content.
+Never claim success without verification.
+
+##### RULE 10 — MINIMIZE USER QUESTIONS (SPEED RULE)
+
+**Do ALL discovery silently in one pass. Then ask the minimum number of questions.**
+
+- **Fresh project** (no CIM, no Z project): at most **2 user interactions** total
+  — one setup confirmation (or path question if SAPAssetManager not found), one customization question.
+- **Existing project** (CIM + Z project already exist): at most **1 user interaction**
+  — go straight to the customization question.
+- **NEVER** ask separately for: CIM creation, CIM name, Z project creation — batch these into
+  the single setup confirmation using the default name `Z<DetectedProjectName>`.
+- The customization question is ALWAYS its own separate `AskUserQuestion` call.
+
+---
+
+#### SSAM CUSTOMIZATION WORKFLOW
+
+##### SETUP PHASE
+
+###### S1 — Silent Discovery (no user interaction)
+
+Run all discovery in one pass without asking any questions:
+
+```javascript
+// Save as /tmp/ssam_discover.js and run: node /tmp/ssam_discover.js "<projectDir>"
+const fs = require("fs"), path = require("path");
+const projectDir = process.argv[2] || process.cwd();
+const sapDir = path.join(projectDir, "SAPAssetManager");
+const sapFound = fs.existsSync(sapDir);
+
+let cimFile = null, customName = null, customDir = null;
+if (sapFound) {
+  for (const f of fs.readdirSync(sapDir))
+    if (f.toLowerCase().endsWith(".cim")) { cimFile = path.join(sapDir, f); break; }
+}
+if (cimFile) {
+  const cim = JSON.parse(fs.readFileSync(cimFile, "utf8"));
+  const names = (cim.IntegrationPoints||[])
+    .map(ip=>(ip.Source||"").replace(/^\//,"").split("/")[0])
+    .filter(n=>n&&n!=="SAPAssetManager");
+  if (names.length) {
+    customName = names.sort((a,b)=>names.filter(x=>x===b).length-names.filter(x=>x===a).length)[0];
+    customDir = path.join(projectDir, customName);
+    if (!fs.existsSync(customDir)) customDir = null;
+  }
+}
+let version = "unknown", schema = "unknown";
+try {
+  const app = JSON.parse(fs.readFileSync(path.join(sapDir,"Application.app"),"utf8"));
+  version = app.Version || app.ApplicationVersion || "unknown";
+  schema  = app._SchemaVersion || "unknown";
+} catch(_) {}
+
+console.log("sap_dir="     + (sapFound    ? sapDir     : "NOT_FOUND"));
+console.log("cim_file="    + (cimFile     ? cimFile    : "NOT_FOUND"));
+console.log("custom_name=" + (customName  ? customName : "NOT_FOUND"));
+console.log("custom_dir="  + (customDir   ? customDir  : "NOT_FOUND"));
+console.log("version="     + version);
+console.log("schema="      + schema);
+```
+
+Collect all findings silently. Do not ask questions yet.
+
+###### S2 — Path question (ONLY if SAPAssetManager not found)
+
+If and only if `SAPAssetManager` is not detected in the workspace root, ask ONE question:
+
+> "I could not find a SAPAssetManager folder in the workspace root. Please provide the path."
+
+Validate the path before continuing.
+
+###### S3 — Setup Confirmation (ONE question for the entire setup)
+
+After silent discovery, determine which scenario applies:
+
+**Scenario A — Everything already exists (CIM + Z project found)**
+
+Set variables, skip to CUSTOMIZATION PHASE. **No question needed.**
+
+```
+SAP_ASSET_MANAGER_PATH = <found path>
+SELECTED_CIM           = <found CIM path>
+Z_PROJECT_PATH         = <found Z project path>
+Z_PROJECT_NAME         = <detected name>
+```
+
+**Scenario B — Fresh project (no CIM, no Z project)**
+
+Derive the default Z project name: `Z` + the detected `_Name` from `Application.app`
+(e.g. `_Name: "SAPAssetManager"` → `ZSAPAssetManager`).
+
+Ask ONE `AskUserQuestion` that summarises findings and proposes the full plan:
+
+```
+Q: "Here's what I found and what I'll create:"
+   Found: SAPAssetManager at <path> (version <ver>)
+   No CIM file — will create: <SAP_DIR>/<Z_NAME>.cim
+   No Z project — will create: <PARENT>/<Z_NAME>/
+   i18n override will be created in Z project automatically.
+
+   Confirm the project name or provide a different one.
+
+Options:
+  - "<Z_NAME> (default)" → proceed with default name
+  - "Custom name"        → user types name in Other field
+```
+
+Once confirmed, proceed immediately to S4. Do not ask again.
+
+**Scenario C — Partial (CIM exists but no Z project, or vice versa)**
+
+Report exactly what exists and what is missing in the same single question as Scenario B.
+
+###### S4 — Execute Setup (silent, no further questions)
+
+Execute all of the following in sequence without asking additional questions:
+
+1. **Create CIM** at `$SAP_DIR/$Z_NAME.cim`:
+
+```json
+{
+    "ProjectName": "<Z_NAME>",
+    "ApplicationName": "<Z_NAME>",
+    "ComponentVersion": "<detected version from Application.app>",
+    "IntegrationPoints": [
+        {
+            "Source": "/<Z_NAME>/i18n/i18n.properties",
+            "Target": "/SAPAssetManager/i18n/i18n.properties"
+        }
+    ]
+}
+```
+
+2. **Create Z project** at `$PARENT/$Z_NAME/` — mirror non-hidden top-level folders from `SAPAssetManager/` using Node.js:
+
+```javascript
+for (const e of fs.readdirSync(sapDir, { withFileTypes: true }))
+  if (e.isDirectory()) fs.mkdirSync(path.join(customDir, e.name), { recursive: true });
+```
+
+3. **Call mdk-create MCP to generate real MDK project structure:**
+
+```
+mcp__mdk__mdk-create {
+  "folderRootPath": "<customDir>",
+  "scope": "project",
+  "templateType": "base"
+}
+```
+This generates proper MDK files: `.project.json`, `Application.app`, `Pages/`, `Actions/`, `Rules/`, `i18n/`.
+If MCP is unavailable, create `Application.app` manually:
+
+```json
+{
+    "_Name": "<Z_NAME>",
+    "_SchemaVersion": "<detected schema version>",
+    "Version": "<detected version>"
+}
+```
+
+4. **Create `$Z_NAME/i18n/i18n.properties`** with header comments only (keys added per customization).
+
+5. **Verify** all 4 artifacts exist. Report a brief summary — one line per artifact.
+
+6. **CIM integrity check** — run silently to confirm no missing entries:
+
+```javascript
+// node /tmp/cim_check.js "<cimFile>" "<customDir>"
+const fs = require("fs"), path = require("path");
+const [,, cimFile, customDir] = process.argv;
+const cim = JSON.parse(fs.readFileSync(cimFile, "utf8"));
+const registered = new Set((cim.IntegrationPoints||[])
+  .map(ip => path.basename(ip.Source||"", ".js")));
+const rules = [];
+function scan(d) {
+  if (!fs.existsSync(d)) return;
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    if (e.isDirectory()) scan(path.join(d, e.name));
+    else if (e.name.endsWith(".js")) rules.push(path.basename(e.name, ".js"));
+  }
+}
+scan(path.join(customDir, "Rules"));
+const missing = rules.filter(r => !registered.has(r));
+const stale   = [...registered].filter(r => !rules.includes(r));
+if (missing.length) console.log("Missing from CIM:", missing);
+if (stale.length)   console.log("Stale CIM entries:", stale);
+if (!missing.length && !stale.length) console.log("✅ CIM integrity OK");
+```
+
+---
+
+##### CUSTOMIZATION PHASE
+
+###### C1 — Ask what to customize (ONE question)
+
+Only after setup verification, ask ONE `AskUserQuestion`:
+
+```
+Q: "The <Z_NAME> project is ready. What would you like to customize?"
+Options: Override a page / Override a rule / Override an action / Custom i18n labels
+```
+
+If the user needs to pick a specific artifact (e.g. which page), ask ONE more targeted question.
+
+###### C2 — Inspect → Implement → Verify
+
+For every customization:
+
+1. Find the artifact in `SAPAssetManager/` — do not assume its location.
+2. Read it to understand current implementation.
+3. Check if a Z override already exists — if yes, read it before modifying.
+4. Create/update the Z override (keep original filename for overrides; add `Z` prefix for new artifacts).
+5. Add the CIM `IntegrationPoint` (`Source` + `Target` only).
+6. Add any i18n keys to `$Z_NAME/i18n/i18n.properties`.
+7. Verify every changed file exists with correct content.
+8. Apply `mdk-app-builder`'s `references/quality-checklist.md` — check every created/modified file against the checklist.
+9. **Validate** after every customization:
+   ```
+   mcp__mdk__mdk-manage { "folderRootPath": "<customDir>", "operation": "validate" }
+   ```
+   Must report 0 errors before completing.
+
+---
+
+#### FINAL REPORT
+
+Print after implementation is verified:
+
+```
+SSAM Customization
+
+SAP Asset Manager:    <path>
+CIM:                  <path>
+Z Project:            <path>
+Application.app:      ✓
+i18n override:        ✓
+Standard project:     ✓ Not modified
+Validation:           ✓ 0 errors
+
+Customization: <description>
+
+Files changed:
+  <file 1>
+  <file 2>
+  ...
+```
+
+---
+
+#### ERROR HANDLING
+
+If any operation fails, stop immediately and report:
+
+```
+FACT:   What was found
+ACTION: What was attempted
+RESULT: What actually happened
+NEXT:   What is needed to continue
+```
+
+---
+
+#### GIT RULE
+
+Never inspect Git history for any purpose in this workflow. `deleted in Git = does not exist`.
